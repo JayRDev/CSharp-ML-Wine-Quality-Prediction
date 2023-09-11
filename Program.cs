@@ -1,8 +1,16 @@
 ﻿using Microsoft.ML.Data;
 using Microsoft.ML;
+using OxyPlot;
+using OxyPlot.Axes;
+using OxyPlot.Series;
+using System.IO;
 using System;
 using System.Security.Cryptography.X509Certificates;
 using System.Globalization;
+using OxyPlot.WindowsForms;
+using PdfSharp.Drawing;
+using PdfSharp.Pdf;
+using System.Text;
 
 namespace WineQualityPrediction
 {
@@ -69,6 +77,9 @@ namespace WineQualityPrediction
         static void Main(string[] args)
         {
             Console.WriteLine("Hello, World!");
+
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
 
             Console.WriteLine("Creating Context");
             var context = new MLContext();
@@ -160,7 +171,7 @@ namespace WineQualityPrediction
                 FreeSulfurDioxide = 1,
                 TotalSulfurDioxide = 2,
                 Density = 1.4f,
-                PH = 7.4f,
+                PH = 3.3f,
                 Sulphates = 3.4f,
                 Alcohol = 12.4f,
                 WineType = "red"
@@ -173,6 +184,85 @@ namespace WineQualityPrediction
             var predictedQuality = sizePredicted.First().Quality;
             Console.WriteLine($"Predicted Quality: {predictedQuality}");
 
+
+            GenerateAndSavePlots(allWines.ToList());
+            CreatePdfWithGraphs();
+
         }
+
+        // Add this method to your Program class:
+        static void GenerateAndSavePlots(List<WineData> wines)
+        {
+            Console.WriteLine("Generating PNGS");
+            var properties = typeof(WineData).GetProperties();
+            foreach (var prop in properties)
+            {
+                if (prop.Name != "Quality" && prop.Name != "WineType")
+                {
+                    var model = new PlotModel
+                    {
+                        Title = $"Correlation of {prop.Name} with Quality",
+                        Background = OxyColors.White
+                    };
+
+
+                    model.Axes.Add(new LinearAxis { Position = AxisPosition.Bottom, Title = prop.Name });
+                    model.Axes.Add(new LinearAxis { Position = AxisPosition.Left, Title = "Quality" });
+
+                    var scatterSeries = new ScatterSeries { MarkerType = MarkerType.Circle };
+
+                    foreach (var wine in wines)
+                    {
+                        scatterSeries.Points.Add(new ScatterPoint((float)prop.GetValue(wine), wine.Quality));
+                    }
+
+                    model.Series.Add(scatterSeries);
+
+                    var pngExporter = new PngExporter { Width = 600, Height = 400 };
+                    var stream = new MemoryStream();
+                    pngExporter.Export(model, stream);
+                    byte[] pngBytes = stream.ToArray();
+
+                    Console.WriteLine("Exporting PNG");
+                    if (!Directory.Exists($"../../../../Graphs"))
+                    {
+                        Directory.CreateDirectory($"../../../../Graphs");
+                    }
+
+                    File.WriteAllBytes($"../../../../Graphs/{prop.Name}_correlation.png", pngBytes);
+                }
+            }
+            Console.WriteLine("All PNGs Saved");
+        }
+
+        static void CreatePdfWithGraphs()
+        {
+            var pdf = new PdfDocument();
+            var graphsDirectory = "../../../../Graphs";
+
+            Console.WriteLine("Creating PDF");
+            foreach (var file in Directory.GetFiles(graphsDirectory, "*.png"))
+            {
+                var page = pdf.AddPage();
+                var gfx = XGraphics.FromPdfPage(page);
+
+                // Set title (the name of the property without "_correlation.png")
+                var title = Path.GetFileNameWithoutExtension(file).Replace("_correlation", "");
+                var font = new XFont("Verdana", 20, XFontStyle.Bold);
+                gfx.DrawString($"Correlation of {title} with Quality", font, XBrushes.Black, new XPoint(50, 50));
+
+                // Embed the PNG image below the title
+                var image = XImage.FromFile(file);
+                gfx.DrawImage(image, 50, 100, 500, 300); // Adjust these numbers to position and size the PNG appropriately in the PDF
+            }
+
+            if (!Directory.Exists(graphsDirectory))
+            {
+                Directory.CreateDirectory(graphsDirectory);
+            }
+            pdf.Save($"{graphsDirectory}/WineQualityCorrelation.pdf");
+            Console.WriteLine("PDF Saved");
+        }
+
     }
 }
